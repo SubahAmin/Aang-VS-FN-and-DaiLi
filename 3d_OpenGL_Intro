@@ -404,11 +404,11 @@ def specialKeyListener(key, x, y):
         z = z-10
     # moving camera left (LEFT arrow key)
     if key == GLUT_KEY_LEFT:
-        x -= 1  # Small angle decrement for smooth movement
+        x -= 10  # Small angle decrement for smooth movement
 
     # moving camera right (RIGHT arrow key)
     if key == GLUT_KEY_RIGHT:
-        x += 1  # Small angle increment for smooth movement
+        x += 10  # Small angle increment for smooth movement
 
     camera_pos = (x, y, z)
 

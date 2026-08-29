@@ -3,6 +3,7 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import random 
 import math
+import time
 
 # Camera-related variables
 camera_pos = (0,500,500)
@@ -24,6 +25,7 @@ GRID_LENGTH = 600  # Length of grid lines
 rand_var = 423
 player_hp = 50
 enemy_fire = []
+last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
 air_timer = 0 #timer for using air shield
 water_cool = 0 #cooldown for using water aka cheatmode
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
@@ -426,8 +428,17 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global av_x, av_y, air_timer, water, water_cool, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over, last_time
+    global av_x, av_y, air_timer, last_time, water, water_cool, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over, last_time
     
+    #time elapsed since the last frame, in seconds
+    now = time.perf_counter()
+    if last_time == 0:
+        last_time = now
+    dt = now - last_time
+    last_time = now
+    if dt > 0.05:
+        dt = 0.05
+        
     if air_timer > 0:
         air_timer -= 1
         if air_timer <= 0:
@@ -470,7 +481,7 @@ def idle():
                 if e["immune"] == "fire":
                     e["cool"] = 400
                     for k in range(4):
-                        off = k *  #off is the spawn distance for each of the three streak segments: 0, 35, 70, 105.
+                        off = k * 35 #off is the spawn distance for each of the three streak segments: 0, 35, 70, 105
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:

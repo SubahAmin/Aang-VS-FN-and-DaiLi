@@ -20,6 +20,7 @@ water = False
 air = False
 earth = False
 game_score = 0
+firstperson= False                                                                            #look here fp1
 fovY = 120  # Field of view
 GRID_LENGTH = 600  # Length of grid lines
 rand_var = 423
@@ -28,6 +29,7 @@ enemy_fire = []
 air_timer = 0 #timer for using air shield
 water_cool = 0 #cooldown for using water aka cheatmode
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
+quad = None #one reusable quadric, made once in main instead of every frame
 
 #(enemy type, element by aand): damage received
 DAMAGE = {
@@ -36,10 +38,10 @@ DAMAGE = {
 }
 #dai li faces screen when movong side to side
 def dai_li_angle(e):
-    dx = av_x - e["x"]
-    dy = av_y - e["y"]
-    if (dx*dx + dy*dy) ** 0.5 < 250:
-        return facing_angle(e["x"], e["y"])
+    dx = av_x - e["x"] #difference between aang x coord and dai li x coord
+    dy = av_y - e["y"] #difference between aang y coord and dai li y coord
+    if (dx*dx + dy*dy) ** 0.5 < 250: #if distance between aang and dai li is less than root over x squared plus y squared
+        return facing_angle(e["x"], e["y"]) 
     return -90.0 if e["hx"] > 0 else 90.0
 
 def draw_hp_bar(e):
@@ -69,11 +71,12 @@ def has_collided(box1, box2):
             box1[1] < box2[1] + box2[3] and
             box1[1] + box1[3] > box2[1])
 
-def spaced_positions(n=6):
+def spaced_positions(n=6): #randomly generates 6 unique positions of all enemies so none collide with each other
     positions = []
     while len(positions) < n:
         x = random.randint(-500, 500)
         y = random.randint(-500, 500)
+        #checks if all spawn positions do not overlap, approx 160 according to size of enemies
         if all(((x-px)**2 + (y-py)**2)**0.5 >= 160 for px, py in positions):
             positions.append((x, y))
     return positions
@@ -124,14 +127,14 @@ def draw_shapes():
     glRotatef(angle, 0, 0, 1)
     glutSolidCube(50) #torso
     glTranslatef(30,0,-50)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #left leg
+    gluCylinder(quad, 10, 10, 60, 10, 10) #left leg
     glTranslatef(-60,0,0)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #right leg
+    gluCylinder(quad, 10, 10, 60, 10, 10) #right leg
     glTranslatef(-30,0,90)
     glRotatef(90, 0, 1, 0)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #righ arm
+    gluCylinder(quad, 10, 10, 60, 10, 10) #righ arm
     glTranslatef(0,0,70)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #left arm
+    gluCylinder(quad, 10, 10, 60, 10, 10) #left arm
     glRotatef(-90, 0, 1, 0)
     glTranslatef(-10, 0, 0)
     glColor(0.9,0.4,0.2)
@@ -177,13 +180,13 @@ def draw_shapes():
         glPopMatrix()
     
     #enemy bullet
-    for f in enemy_fire:
+    for f in enemy_fire: #each f is [x, y, dx, dy, element]
         glPushMatrix()
         glTranslatef(f[0], f[1], 150)
-        if f[4] == "fire":
+        if f[4] == "fire": #if element == fire
             glColor3f(1, 0.4, 0)
             glutSolidCube(14)
-        else:
+        else: #then element is earth
             glColor3f(0.3, 0.5, 0.2)
             glutSolidCube(30)
         glPopMatrix()
@@ -202,22 +205,22 @@ def draw_shapes():
         glutSolidCube(80)
         glColor3f(1, 1, 1)
         glTranslatef(0,0,40)
-        gluSphere(gluNewQuadric(), 40, 10, 10) #face
+        gluSphere(quad, 40, 10, 10) #face
         glColor3f(0.4, 0.1, 0)
         glTranslatef(30,0,30)
         glRotatef(40, 0, 1, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left spike
+        gluCylinder(quad, 20, 5, 50, 10, 10) #left spike
         glRotatef(-40, 0, 1, 0)
         glTranslatef(-60,0,0)
         glRotatef(-40, 0, 1, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right spike
+        gluCylinder(quad, 20, 5, 50, 10, 10) #right spike
         glColor(0.9,0.8,0.5)
         glRotatef(40, 0, 1, 0)
         glTranslatef(-10,0,-80)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right arm
+        gluCylinder(quad, 20, 5, 50, 10, 10) #right arm
         glTranslatef(80,0,00)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left arm
+        gluCylinder(quad, 20, 5, 50, 10, 10) #left arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(-15,0,-80)
         glColor3f(0.6, 0.1, 0)
@@ -241,18 +244,18 @@ def draw_shapes():
         glutSolidCube(80)
         glTranslatef(0,0,40)
         glColor(0.9,0.8,0.5)
-        gluSphere(gluNewQuadric(), 50, 10, 10) #head
+        gluSphere(quad, 50, 10, 10) #head
         glTranslatef(0,0,40)
         glColor3f(0.1, 0.4, 0.2)
-        gluCylinder(gluNewQuadric(), 80, 5, 50, 10, 10) #hat
+        gluCylinder(quad, 80, 5, 50, 10, 10) #hat
         glColor(0.9,0.8,0.5)
         glTranslatef(60,0,-100)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left arm
+        gluCylinder(quad, 20, 5, 50, 10, 10) #left arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(-100,0,0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right arm
+        gluCylinder(quad, 20, 5, 50, 10, 10) #right arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(20,0,-80)
         glColor(0,0,0)
@@ -305,21 +308,21 @@ def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
     """
-    global av_x, av_y, game_over, air_timer, water_cool, angle, air, water, fire, earth
+    global av_x, av_y, game_over, air_timer, water_cool, angle, air, water, fire, earth,firstperson                        #look here fp4
     
     rad = math.radians(angle)
     ax=-math.sin(rad)
     ay=math.cos(rad)
     if key == b'w':  
         if not game_over: 
-            av_x += 10 * ax
-            av_y += 10 * ay
+            av_x += 20 * ax
+            av_y += 20 * ay
 
     # # Move backward (S key)
     if key == b's':
         if not game_over: 
-            av_x -= 10 * ax
-            av_y -= 10 * ay
+            av_x -= 20 * ax
+            av_y -= 20 * ay
 
     # # Rotate gun left (A key)
     if key == b'a':
@@ -334,13 +337,13 @@ def keyboardListener(key, x, y):
     if key == b'1':
         air = True
         water, fire, earth = False, False, False
-        air_timer = 10.0
+        air_timer = 10
         print("Air selected")
         
     if key == b'2':
         water = True
         air, fire, earth = False, False, False
-        water_cool = 15.0
+        water_cool = 15
         print("Water selected")
     if key == b'3':
         earth = True
@@ -350,6 +353,11 @@ def keyboardListener(key, x, y):
         fire = True
         water, air, earth = False, False, False
         print("Fire selected")
+     
+    if key == b'f':                                                                         #look here fp5
+       firstperson = not firstperson
+       print("First person mode selected")
+        
         
 
 def specialKeyListener(key, x, y):
@@ -383,17 +391,18 @@ def mouseListener(button, state, x, y):
     global bullets, bullet_count
 
     if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN and not game_over:
-        rad = math.radians(angle)
-        ax = -math.sin(rad)
-        ay = math.cos(rad)
+        rad = math.radians(angle) #angle aang is facing
+        ax = -math.sin(rad) #x coord of where aang is facing
+        ay = math.cos(rad) #y coord of where aang is facing
         element = "water" if water else "earth" if earth else "fire" if fire else None
         if element is None:
             return
         if element == "earth":
-            bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, element])
-        else:
+            bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, element]) #spawn 60 units in front of Aang
+        else: #for water and fire
             for k in range(3):
-                off = 60 + k * 25
+                #25 units spaced between bullets
+                off = 60 + k * 25 #off is the spawn distance for each of the three streak segments: 60, 85, 110.
                 bullets.append([av_x + off*ax, av_y + off*ay, ax, ay, element])
         bullet_count += 1
         # # Right mouse button toggles camera tracking mode
@@ -405,6 +414,7 @@ def setupCamera():
     Configures the camera's projection and view settings.
     Uses a perspective projection and positions the camera to look at the target.
     """
+    global firstperson                                                                        #look here fp2
     glMatrixMode(GL_PROJECTION)  # Switch to projection matrix mode
     glLoadIdentity()  # Reset the projection matrix
     # Set up a perspective projection (field of view, aspect ratio, near clip, far clip)
@@ -414,10 +424,23 @@ def setupCamera():
 
     # Extract camera position and look-at target
     x, y, z = camera_pos
+    if firstperson :                                                                         #look here fp3
+      #  fp_angle = angle
+        rad = math.radians(angle) 
+        ax = -math.sin(rad)
+        ay = math.cos(rad)
+        cam_x = av_x +80*ax
+        cam_y = av_y +80*ay
+        cam_z = 170
+        gluLookAt(cam_x, cam_y, cam_z,
+                  av_x + 400*ax, av_y + 400*ay, 80,
+                  0, 0, 1)
+        
+    else:
     # Position the camera and set its orientation
-    gluLookAt(x, y, z,  # Camera position
-              0, 0, 0,  # Look-at target
-              0, 0, 1)  # Up vector (z-axis)
+        gluLookAt(x, y, z,  # Camera position
+                 0, 0, 0,  # Look-at target
+                 0, 0, 1)  # Up vector (z-axis)
 
 
 def idle():
@@ -425,7 +448,7 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global av_x, av_y, air_timer, water, water_cool, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over, last_time
+    global av_x, av_y, air_timer, last_time, water, water_cool, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over
     
     #time elapsed since the last frame, in seconds
     now = time.perf_counter()
@@ -435,7 +458,7 @@ def idle():
     last_time = now
     if dt > 0.05:
         dt = 0.05
-    
+        
     if air_timer > 0:
         air_timer -= dt
         if air_timer <= 0:
@@ -447,7 +470,7 @@ def idle():
             water = False
             print("Water expired")
     
-    bullet_speed = 450
+    bullet_speed = 550
     new_bullets = []
     for b in bullets:
         b[0] += b[2] * bullet_speed * dt #x coordinate of bullet being updated
@@ -457,45 +480,47 @@ def idle():
         
     bullets = new_bullets
     
-    speed = 45
-    patrol_speed = 70 #speed of dai li
+    speed = 55
+    patrol_speed = 90 #speed of dai li
     detect = 250
     
     #enemy movement
     for e in enemy_positions:
-        dx = av_x - e["x"]
-        dy = av_y - e["y"]
-        d = (dx*dx + dy*dy) ** 0.5
-        if e["immune"] == "fire" or d < detect:
+        dx = av_x - e["x"] #distance between aang x coord and enemy x coord
+        dy = av_y - e["y"] #distance between aang y coord and enemy y coord
+        d = (dx*dx + dy*dy) ** 0.5 #total detection range
+        #e[immune] names the element that enemy resists,
+        #(dx/d, dy/d) normalizes the vector to Aang — dividing by its own length gives a unit vector, same idea as ax, ay. Multiplying by speed steps that far toward him.
+        if e["immune"] == "fire" or d < detect: #within range of detection 
             if d > 1:
-                e["x"] += (dx/d) * speed * dt
+                e["x"] += (dx/d) * speed * dt #enemy starts moving x and y coord towards aang x y coord
                 e["y"] += (dy/d) * speed * dt
-            e["cool"] -= dt
+            e["cool"] -= dt #firing cooldown of enemies
             if e["cool"] <= 0 and 1 < d < 300 and not game_over:
                 ux, uy = dx/d, dy/d
                 if e["immune"] == "fire":
-                    e["cool"] = 3.0
+                    e["cool"] = 2.5
                     for k in range(4):
-                        off = k * 35
+                        off = k * 35 #off is the spawn distance for each of the three streak segments: 0, 35, 70, 105
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:
-                    e["cool"] = 5.0
+                    e["cool"] = 4.0
                     enemy_fire.append([e["x"], e["y"], ux, uy, "earth"])
         else:
             if e["steps"] <= 0:
-                e["hx"] = random.choice((-1.0, 1.0))
+                e["hx"] = random.choice((-1.0, 1.0)) #e["hx"] is the patrol heading — +1.0 or -1.0, meaning right or left along X.
                 e["steps"] = random.uniform(2.0, 5.0)
             e["x"] += e["hx"] * patrol_speed * dt
-            e["steps"] -= dt
-            if not -550 <= e["x"] <= 550:
+            e["steps"] -= dt #steps is a countdown. When it expires, pick a fresh random direction and a fresh duration
+            if not -550 <= e["x"] <= 550: #boundary of arena for enemy
                 e["hx"] = -e["hx"]
                 e["x"] = max(-550, min(550, e["x"]))
     
     
     #enemy bullet movement
-    fire_speed = 350
-    earth_speed = 200
+    fire_speed = 400
+    earth_speed = 240
     aang_box = (av_x - 35, av_y - 35, 70, 70) #coordinate of aang
     surviving_fire = []
     for f in enemy_fire:
@@ -523,7 +548,7 @@ def idle():
     # bullet vs enemy
     surviving_bullets = []
     for b in bullets:
-        half = 17 if b[4] == "earth" else 6
+        half = 17 if b[4] == "earth" else 6 #half is half width of projectile hitbox as point calculated from centre
         bullet_box = (b[0] - half, b[1] - half, half*2, half*2)
         target = None
         best = None
@@ -603,7 +628,7 @@ def showScreen():
 
 # Main function to set up OpenGL window and loop
 def main():
-    global enemy_positions
+    global enemy_positions, quad
     enemy_positions = [{"x": x, "y": y,
                  "immune": "fire" if i < 4 else "earth",
                  "hx": 0.0, "hy": 0.0, "steps": 0.0, "cool": 0.0,
@@ -614,6 +639,7 @@ def main():
     glutInitWindowSize(1000, 800)  # Window size
     glutInitWindowPosition(0, 0)  # Window position
     wind = glutCreateWindow(b"3D OpenGL Intro")  # Create the window
+    quad = gluNewQuadric() #made once here, reused by every draw call
 
     glutDisplayFunc(showScreen)  # Register display function
     glutKeyboardFunc(keyboardListener)  # Register keyboard listener

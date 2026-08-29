@@ -3,6 +3,7 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import random 
 import math
+import time
 
 # Camera-related variables
 camera_pos = (0,500,500)
@@ -24,8 +25,15 @@ GRID_LENGTH = 600  # Length of grid lines
 rand_var = 423
 player_hp = 50
 enemy_fire = []
+air_timer = 0 #timer for using air shield
+water_cool = 0 #cooldown for using water aka cheatmode
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
 
+#(enemy type, element by aand): damage received
+DAMAGE = {
+    ("fire", "water"): 2, ("fire", "earth"): 5,
+    ("earth", "water"): 2, ("earth", "fire"): 5,
+}
 #dai li faces screen when movong side to side
 def dai_li_angle(e):
     dx = av_x - e["x"]
@@ -34,6 +42,24 @@ def dai_li_angle(e):
         return facing_angle(e["x"], e["y"])
     return -90.0 if e["hx"] > 0 else 90.0
 
+def draw_hp_bar(e):
+    frac = max(0.0, e["hp"] / e["maxhp"])
+    glPushMatrix()
+    glTranslatef(e["x"], e["y"], 260)
+    glColor3f(0.3, 0.3, 0.3)
+    glPushMatrix()
+    glScalef(100, 6, 10)
+    glutSolidCube(1)
+    glPopMatrix()
+    if frac > 0:
+        glColor3f(0.2, 0.9, 0.2)
+        glPushMatrix()
+        glTranslatef(-50 * (1 - frac), 0, 0)
+        glScalef(100 * frac, 7, 11)
+        glutSolidCube(1)
+        glPopMatrix()
+    glPopMatrix()
+    
 def facing_angle(ex, ey): #so that enemies face aang 
     return math.degrees(math.atan2(-(av_x - ex), av_y - ey))
 
@@ -89,7 +115,7 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
 
 
 def draw_shapes():
-    global av_x, av_y, angle, bullets
+    global av_x, av_y, angle, bullets, air
     
     #aang
     glPushMatrix()
@@ -124,20 +150,30 @@ def draw_shapes():
     glTranslatef(0, -60, 0)
     glutSolidCube(10)
     glPopMatrix()
+    #air shield
+    if air:
+        glPushMatrix()
+        glTranslatef(av_x, av_y, 100)
+        glColor3f(0.9, 0.6, 0.3)
+        for k in range(12):
+            a = math.radians(k * 30) #angle of blocks circling around aang to make shield
+            glPushMatrix()
+            glTranslatef(90 * math.cos(a), 90 * math.sin(a), 0)
+            glutSolidCube(20)
+            glPopMatrix()
+        glPopMatrix()
     
     element_colors = {
-        "air": (0.9, 0.6, 0.3),
         "water": (0, 0.6, 0.9),
         "fire": (1, 0.2, 0.2),
         "earth": (0, 0.6, 0.2),
-        "none": (0.9, 0.7, 0.4),
     }
 
-    for b in bullets:
+    for b in bullets: #aang bullets
         glPushMatrix()
-        glColor3f(*element_colors[b[4]])
+        glColor3f(*element_colors[b[4]]) #color of element selected from list right above
         glTranslatef(b[0], b[1], 150)
-        glutSolidCube(10)
+        glutSolidCube(35 if b[4] == "earth" else 12)
         glPopMatrix()
     
     #enemy bullet
@@ -189,6 +225,7 @@ def draw_shapes():
         glTranslatef(-55,0,0)
         glutSolidCube(30)
         glPopMatrix()
+        draw_hp_bar(e)
     
     #dai li soldiers
     for e in enemy_positions:
@@ -223,6 +260,7 @@ def draw_shapes():
         glTranslatef(60,0,00)
         glutSolidCube(40)
         glPopMatrix()
+        draw_hp_bar(e)
     
   #  gluSphere(gluNewQuadric(), 50, 10, 10) #belly
    # glTranslate(0,0,20)
@@ -267,7 +305,8 @@ def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
     """
-    global av_x, av_y, game_over, angle, air, water, fire, earth
+    global av_x, av_y, game_over, air_timer, water_cool, angle, air, water, fire, earth
+    
     rad = math.radians(angle)
     ax=-math.sin(rad)
     ay=math.cos(rad)
@@ -295,10 +334,13 @@ def keyboardListener(key, x, y):
     if key == b'1':
         air = True
         water, fire, earth = False, False, False
+        air_timer = 10.0
         print("Air selected")
+        
     if key == b'2':
         water = True
         air, fire, earth = False, False, False
+        water_cool = 15.0
         print("Water selected")
     if key == b'3':
         earth = True
@@ -338,15 +380,21 @@ def mouseListener(button, state, x, y):
     """
     Handles mouse inputs for firing bullets (left click) and toggling camera mode (right click).
     """
-    global av_x, av_y, game_over, bullets, bullet_count, air, water, fire, earth, element
-        # # Left mouse button fires a bullet
-        # if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
+    global bullets, bullet_count
+
     if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN and not game_over:
         rad = math.radians(angle)
         ax = -math.sin(rad)
         ay = math.cos(rad)
-        element = "air" if air else "water" if water else "earth" if earth else "fire" if fire else "none"
-        bullets.append([av_x+60*ax, av_y+60*ay, ax, ay, element])
+        element = "water" if water else "earth" if earth else "fire" if fire else None
+        if element is None:
+            return
+        if element == "earth":
+            bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, element])
+        else:
+            for k in range(3):
+                off = 60 + k * 25
+                bullets.append([av_x + off*ax, av_y + off*ay, ax, ay, element])
         bullet_count += 1
         # # Right mouse button toggles camera tracking mode
         # if button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
@@ -377,20 +425,40 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global av_x, av_y, enemy_positions, bullets, game_score, player_hp, enemy_fire, game_over, last_time
+    global av_x, av_y, air_timer, water, water_cool, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over, last_time
     
-    bullet_speed = 2
+    #time elapsed since the last frame, in seconds
+    now = time.perf_counter()
+    if last_time == 0:
+        last_time = now
+    dt = now - last_time
+    last_time = now
+    if dt > 0.05:
+        dt = 0.05
+    
+    if air_timer > 0:
+        air_timer -= dt
+        if air_timer <= 0:
+            air = False
+            print("Air shield expired")
+    if water_cool > 0:
+        water_cool -= dt
+        if water_cool <= 0:
+            water = False
+            print("Water expired")
+    
+    bullet_speed = 450
     new_bullets = []
     for b in bullets:
-        b[0] += b[2] * bullet_speed
-        b[1] += b[3] * bullet_speed
-        if -600 <= b[0] <= 600 and -600 <= b[1] <= 600:
+        b[0] += b[2] * bullet_speed * dt #x coordinate of bullet being updated
+        b[1] += b[3] * bullet_speed * dt #y coordinate of bullet being updated
+        if -600 <= b[0] <= 600 and -600 <= b[1] <= 600: #if bullet goes out of bounds of the arena
             new_bullets.append(b)
         
     bullets = new_bullets
     
-    speed = 0.1
-    patrol_speed = 0.4
+    speed = 45
+    patrol_speed = 70 #speed of dai li
     detect = 250
     
     #enemy movement
@@ -400,50 +468,53 @@ def idle():
         d = (dx*dx + dy*dy) ** 0.5
         if e["immune"] == "fire" or d < detect:
             if d > 1:
-                e["x"] += (dx/d) * speed
-                e["y"] += (dy/d) * speed
-            e["cool"] -= 1
+                e["x"] += (dx/d) * speed * dt
+                e["y"] += (dy/d) * speed * dt
+            e["cool"] -= dt
             if e["cool"] <= 0 and 1 < d < 300 and not game_over:
                 ux, uy = dx/d, dy/d
                 if e["immune"] == "fire":
-                    e["cool"] = 400
+                    e["cool"] = 3.0
                     for k in range(4):
                         off = k * 35
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:
-                    e["cool"] = 600
+                    e["cool"] = 5.0
                     enemy_fire.append([e["x"], e["y"], ux, uy, "earth"])
         else:
             if e["steps"] <= 0:
                 e["hx"] = random.choice((-1.0, 1.0))
-                e["steps"] = random.randint(200, 600)
-            e["x"] += e["hx"] * patrol_speed
-            e["steps"] -= 1
+                e["steps"] = random.uniform(2.0, 5.0)
+            e["x"] += e["hx"] * patrol_speed * dt
+            e["steps"] -= dt
             if not -550 <= e["x"] <= 550:
                 e["hx"] = -e["hx"]
                 e["x"] = max(-550, min(550, e["x"]))
     
     
     #enemy bullet movement
-    fire_speed = 1.5
-    earth_speed = 0.9
-    aang_box = (av_x - 35, av_y - 35, 70, 70)
+    fire_speed = 350
+    earth_speed = 200
+    aang_box = (av_x - 35, av_y - 35, 70, 70) #coordinate of aang
     surviving_fire = []
     for f in enemy_fire:
-        v = fire_speed if f[4] == "fire" else earth_speed
+        v = fire_speed if f[4] == "fire" else earth_speed #selects speed of bullet depending on enemy
         half = 7 if f[4] == "fire" else 15
-        f[0] += f[2] * v
-        f[1] += f[3] * v
+        f[0] += f[2] * v * dt #fire x coordinate being updated
+        f[1] += f[3] * v * dt #fire y coordinate being updated
         if not (-600 <= f[0] <= 600 and -600 <= f[1] <= 600):
             continue
         if has_collided((f[0] - half, f[1] - half, half*2, half*2), aang_box):
-            player_hp -= 2
-            print("Aang hit! HP:", player_hp)
-            if player_hp <= 0 and not game_over:
-                player_hp = 0
-                game_over = True
-                print("Game over")
+            if air:
+                print("Air shield deflected damage") #for element air selected, no damage is done
+            else: #damage done by others when not air selected
+                player_hp -= 2
+                print("Aang hit! HP:", player_hp)
+                if player_hp <= 0 and not game_over:
+                    player_hp = 0
+                    game_over = True
+                    print("Game over")
             continue
         surviving_fire.append(f)
     enemy_fire = surviving_fire
@@ -452,7 +523,8 @@ def idle():
     # bullet vs enemy
     surviving_bullets = []
     for b in bullets:
-        bullet_box = (b[0] - 5, b[1] - 5, 10, 10)
+        half = 17 if b[4] == "earth" else 6
+        bullet_box = (b[0] - half, b[1] - half, half*2, half*2)
         target = None
         best = None
         for e in enemy_positions:
@@ -468,10 +540,15 @@ def idle():
         if b[4] == target["immune"]:
             print("Immune")
         else:
-            print("Enemy shot!")
-            game_score += 1
-            target["x"], target["y"] = respawn_position()
-            target["steps"] = 0
+            dmg = DAMAGE.get((target["immune"], b[4]), 1)
+            target["hp"] -= dmg
+            print("Hit for", dmg, "- enemy HP:", target["hp"])
+            if target["hp"] <= 0:
+                print("Enemy down!")
+                game_score += 1
+                target["x"], target["y"] = respawn_position()
+                target["hp"] = target["maxhp"]
+                target["steps"] = 0
     bullets = surviving_bullets
     
     # Ensure the screen updates with the latest changes
@@ -528,9 +605,10 @@ def showScreen():
 def main():
     global enemy_positions
     enemy_positions = [{"x": x, "y": y,
-                     "immune": "fire" if i < 4 else "earth",
-                     "hx": 0.0, "hy": 0.0, "steps": 0, "cool": 0}
-                    for i, (x, y) in enumerate(spaced_positions(6))]
+                 "immune": "fire" if i < 4 else "earth",
+                 "hx": 0.0, "hy": 0.0, "steps": 0.0, "cool": 0.0,
+                 "hp": 10, "maxhp": 10}
+                for i, (x, y) in enumerate(spaced_positions(6))]
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)  # Double buffering, RGB color, depth test
     glutInitWindowSize(1000, 800)  # Window size

@@ -336,13 +336,13 @@ def keyboardListener(key, x, y):
     if key == b'1':
         air = True
         water, fire, earth = False, False, False
-        air_timer = 600
+        air_timer = 10
         print("Air selected")
         
     if key == b'2':
         water = True
         air, fire, earth = False, False, False
-        water_cool = 900
+        water_cool = 15
         print("Water selected")
     if key == b'3':
         earth = True
@@ -440,28 +440,28 @@ def idle():
         dt = 0.05
         
     if air_timer > 0:
-        air_timer -= 1
+        air_timer -= dt
         if air_timer <= 0:
             air = False
             print("Air shield expired")
     if water_cool > 0:
-        water_cool -= 1
+        water_cool -= dt
         if water_cool <= 0:
             water = False
             print("Water expired")
     
-    bullet_speed = 2
+    bullet_speed = 120
     new_bullets = []
     for b in bullets:
-        b[0] += b[2] * bullet_speed #x coordinate of bullet being updated
-        b[1] += b[3] * bullet_speed #y coordinate of bullet being updated
+        b[0] += b[2] * bullet_speed * dt #x coordinate of bullet being updated
+        b[1] += b[3] * bullet_speed  * dt #y coordinate of bullet being updated
         if -600 <= b[0] <= 600 and -600 <= b[1] <= 600: #if bullet goes out of bounds of the arena
             new_bullets.append(b)
         
     bullets = new_bullets
     
-    speed = 0.1
-    patrol_speed = 0.4 #speed of dai li
+    speed = 6
+    patrol_speed = 24 #speed of dai li
     detect = 250
     
     #enemy movement
@@ -473,41 +473,41 @@ def idle():
         #(dx/d, dy/d) normalizes the vector to Aang — dividing by its own length gives a unit vector, same idea as ax, ay. Multiplying by speed steps that far toward him.
         if e["immune"] == "fire" or d < detect: #within range of detection 
             if d > 1:
-                e["x"] += (dx/d) * speed #enemy starts moving x and y coord towards aang x y coord
-                e["y"] += (dy/d) * speed
-            e["cool"] -= 1 #firing cooldown of enemies
+                e["x"] += (dx/d) * speed * dt #enemy starts moving x and y coord towards aang x y coord
+                e["y"] += (dy/d) * speed * dt
+            e["cool"] -= dt #firing cooldown of enemies
             if e["cool"] <= 0 and 1 < d < 300 and not game_over:
                 ux, uy = dx/d, dy/d
                 if e["immune"] == "fire":
-                    e["cool"] = 400
+                    e["cool"] = 6.7
                     for k in range(4):
                         off = k * 35 #off is the spawn distance for each of the three streak segments: 0, 35, 70, 105
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:
-                    e["cool"] = 600
+                    e["cool"] = 10.0
                     enemy_fire.append([e["x"], e["y"], ux, uy, "earth"])
         else:
             if e["steps"] <= 0:
                 e["hx"] = random.choice((-1.0, 1.0)) #e["hx"] is the patrol heading — +1.0 or -1.0, meaning right or left along X.
-                e["steps"] = random.randint(200, 600)
-            e["x"] += e["hx"] * patrol_speed
-            e["steps"] -= 1 #steps is a frame countdown. When it expires, pick a fresh random direction and a fresh duration of 200–600 frames.
+                e["steps"] = random.uniform(3.3, 10.0)
+            e["x"] += e["hx"] * patrol_speed *dt
+            e["steps"] -= dt #steps is a countdown. When it expires, pick a fresh random direction and a fresh duration
             if not -550 <= e["x"] <= 550: #boundary of arena for enemy
                 e["hx"] = -e["hx"]
                 e["x"] = max(-550, min(550, e["x"]))
     
     
     #enemy bullet movement
-    fire_speed = 1.5
-    earth_speed = 0.9
+    fire_speed = 90
+    earth_speed = 54
     aang_box = (av_x - 35, av_y - 35, 70, 70) #coordinate of aang
     surviving_fire = []
     for f in enemy_fire:
         v = fire_speed if f[4] == "fire" else earth_speed #selects speed of bullet depending on enemy
         half = 7 if f[4] == "fire" else 15
-        f[0] += f[2] * v #fire x coordinate being updated
-        f[1] += f[3] * v #fire y coordinate being updated
+        f[0] += f[2] * v *dt #fire x coordinate being updated
+        f[1] += f[3] * v * dt#fire y coordinate being updated
         if not (-600 <= f[0] <= 600 and -600 <= f[1] <= 600):
             continue
         if has_collided((f[0] - half, f[1] - half, half*2, half*2), aang_box):

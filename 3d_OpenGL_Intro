@@ -35,10 +35,10 @@ DAMAGE = {
 }
 #dai li faces screen when movong side to side
 def dai_li_angle(e):
-    dx = av_x - e["x"]
-    dy = av_y - e["y"]
-    if (dx*dx + dy*dy) ** 0.5 < 250:
-        return facing_angle(e["x"], e["y"])
+    dx = av_x - e["x"] #difference between aang x coord and dai li x coord
+    dy = av_y - e["y"] #difference between aang y coord and dai li y coord
+    if (dx*dx + dy*dy) ** 0.5 < 250: #if distance between aang and dai li is less than root over x squared plus y squared
+        return facing_angle(e["x"], e["y"]) 
     return -90.0 if e["hx"] > 0 else 90.0
 
 def draw_hp_bar(e):
@@ -68,11 +68,12 @@ def has_collided(box1, box2):
             box1[1] < box2[1] + box2[3] and
             box1[1] + box1[3] > box2[1])
 
-def spaced_positions(n=6):
+def spaced_positions(n=6): #randomly generates 6 unique positions of all enemies so none collide with each other
     positions = []
     while len(positions) < n:
         x = random.randint(-500, 500)
         y = random.randint(-500, 500)
+        #checks if all spawn positions do not overlap, approx 160 according to size of enemies
         if all(((x-px)**2 + (y-py)**2)**0.5 >= 160 for px, py in positions):
             positions.append((x, y))
     return positions
@@ -176,13 +177,13 @@ def draw_shapes():
         glPopMatrix()
     
     #enemy bullet
-    for f in enemy_fire:
+    for f in enemy_fire: #each f is [x, y, dx, dy, element]
         glPushMatrix()
         glTranslatef(f[0], f[1], 150)
-        if f[4] == "fire":
+        if f[4] == "fire": #if element == fire
             glColor3f(1, 0.4, 0)
             glutSolidCube(14)
-        else:
+        else: #then element is earth
             glColor3f(0.3, 0.5, 0.2)
             glutSolidCube(30)
         glPopMatrix()
@@ -382,17 +383,18 @@ def mouseListener(button, state, x, y):
     global bullets, bullet_count
 
     if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN and not game_over:
-        rad = math.radians(angle)
-        ax = -math.sin(rad)
-        ay = math.cos(rad)
+        rad = math.radians(angle) #angle aang is facing
+        ax = -math.sin(rad) #x coord of where aang is facing
+        ay = math.cos(rad) #y coord of where aang is facing
         element = "water" if water else "earth" if earth else "fire" if fire else None
         if element is None:
             return
         if element == "earth":
-            bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, element])
-        else:
+            bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, element]) #spawn 60 units in front of Aang
+        else: #for water and fire
             for k in range(3):
-                off = 60 + k * 25
+                #25 units spaced between bullets
+                off = 60 + k * 25 #off is the spawn distance for each of the three streak segments: 60, 85, 110.
                 bullets.append([av_x + off*ax, av_y + off*ay, ax, ay, element])
         bullet_count += 1
         # # Right mouse button toggles camera tracking mode
@@ -453,20 +455,22 @@ def idle():
     
     #enemy movement
     for e in enemy_positions:
-        dx = av_x - e["x"]
-        dy = av_y - e["y"]
-        d = (dx*dx + dy*dy) ** 0.5
-        if e["immune"] == "fire" or d < detect:
+        dx = av_x - e["x"] #distance between aang x coord and enemy x coord
+        dy = av_y - e["y"] #distance between aang y coord and enemy y coord
+        d = (dx*dx + dy*dy) ** 0.5 #total detection range
+        #e[immune] names the element that enemy resists,
+        #(dx/d, dy/d) normalizes the vector to Aang — dividing by its own length gives a unit vector, same idea as ax, ay. Multiplying by speed steps that far toward him.
+        if e["immune"] == "fire" or d < detect: #within range of detection 
             if d > 1:
-                e["x"] += (dx/d) * speed
+                e["x"] += (dx/d) * speed #enemy starts moving x and y coord towards aang x y coord
                 e["y"] += (dy/d) * speed
-            e["cool"] -= 1
+            e["cool"] -= 1 #firing cooldown of enemies
             if e["cool"] <= 0 and 1 < d < 300 and not game_over:
                 ux, uy = dx/d, dy/d
                 if e["immune"] == "fire":
                     e["cool"] = 400
                     for k in range(4):
-                        off = k * 35
+                        off = k *  #off is the spawn distance for each of the three streak segments: 0, 35, 70, 105.
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:
@@ -474,11 +478,11 @@ def idle():
                     enemy_fire.append([e["x"], e["y"], ux, uy, "earth"])
         else:
             if e["steps"] <= 0:
-                e["hx"] = random.choice((-1.0, 1.0))
+                e["hx"] = random.choice((-1.0, 1.0)) #e["hx"] is the patrol heading — +1.0 or -1.0, meaning right or left along X.
                 e["steps"] = random.randint(200, 600)
             e["x"] += e["hx"] * patrol_speed
-            e["steps"] -= 1
-            if not -550 <= e["x"] <= 550:
+            e["steps"] -= 1 #steps is a frame countdown. When it expires, pick a fresh random direction and a fresh duration of 200–600 frames.
+            if not -550 <= e["x"] <= 550: #boundary of arena for enemy
                 e["hx"] = -e["hx"]
                 e["x"] = max(-550, min(550, e["x"]))
     
@@ -513,7 +517,7 @@ def idle():
     # bullet vs enemy
     surviving_bullets = []
     for b in bullets:
-        half = 17 if b[4] == "earth" else 6
+        half = 17 if b[4] == "earth" else 6 #half is half width of projectile hitbox as point calculated from centre
         bullet_box = (b[0] - half, b[1] - half, half*2, half*2)
         target = None
         best = None

@@ -24,8 +24,15 @@ GRID_LENGTH = 600  # Length of grid lines
 rand_var = 423
 player_hp = 50
 enemy_fire = []
+air_timer = 0 #timer for using air shield
+water_cool = 0 #cooldown for using water aka cheatmode
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
 
+#(enemy type, element by aand): damage received
+DAMAGE = {
+    ("fire", "water"): 2, ("fire", "earth"): 5, ("fire", "air"): 3,
+    ("earth", "water"): 2, ("earth", "fire"): 5, ("earth", "air"): 3,
+}
 #dai li faces screen when movong side to side
 def dai_li_angle(e):
     dx = av_x - e["x"]
@@ -89,7 +96,7 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
 
 
 def draw_shapes():
-    global av_x, av_y, angle, bullets
+    global av_x, av_y, angle, bullets, air
     
     #aang
     glPushMatrix()
@@ -123,6 +130,18 @@ def draw_shapes():
     glutSolidCube(10)
     glTranslatef(0, -60, 0)
     glutSolidCube(10)
+    #air shield
+    if air:
+        glPushMatrix()
+        glTranslatef(av_x, av_y, -90)
+        glColor3f(0.9, 0.6, 0.3)
+        for k in range(12):
+            a = math.radians(k * 30) #angle of blocks circling around aang to make shield
+            glPushMatrix()
+            glTranslatef(90 * math.cos(a), 90 * math.sin(a), 0)
+            glutSolidCube(20)
+            glPopMatrix()
+        glPopMatrix()
     glPopMatrix()
     
     element_colors = {
@@ -133,9 +152,9 @@ def draw_shapes():
         "none": (0.9, 0.7, 0.4),
     }
 
-    for b in bullets:
+    for b in bullets: #aang bullets
         glPushMatrix()
-        glColor3f(*element_colors[b[4]])
+        glColor3f(*element_colors[b[4]]) #color of element selected from list right above
         glTranslatef(b[0], b[1], 150)
         glutSolidCube(10)
         glPopMatrix()
@@ -377,20 +396,20 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global av_x, av_y, enemy_positions, bullets, game_score, player_hp, enemy_fire, game_over, last_time
+    global av_x, av_y, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over, last_time
     
     bullet_speed = 2
     new_bullets = []
     for b in bullets:
-        b[0] += b[2] * bullet_speed
-        b[1] += b[3] * bullet_speed
-        if -600 <= b[0] <= 600 and -600 <= b[1] <= 600:
+        b[0] += b[2] * bullet_speed #x coordinate of bullet being updated
+        b[1] += b[3] * bullet_speed #y coordinate of bullet being updated
+        if -600 <= b[0] <= 600 and -600 <= b[1] <= 600: #if bullet goes out of bounds of the arena
             new_bullets.append(b)
         
     bullets = new_bullets
     
     speed = 0.1
-    patrol_speed = 0.4
+    patrol_speed = 0.4 #speed of dai li
     detect = 250
     
     #enemy movement
@@ -428,22 +447,25 @@ def idle():
     #enemy bullet movement
     fire_speed = 1.5
     earth_speed = 0.9
-    aang_box = (av_x - 35, av_y - 35, 70, 70)
+    aang_box = (av_x - 35, av_y - 35, 70, 70) #coordinate of aang
     surviving_fire = []
     for f in enemy_fire:
-        v = fire_speed if f[4] == "fire" else earth_speed
+        v = fire_speed if f[4] == "fire" else earth_speed #selects speed of bullet depending on enemy
         half = 7 if f[4] == "fire" else 15
-        f[0] += f[2] * v
-        f[1] += f[3] * v
+        f[0] += f[2] * v #fire x coordinate being updated
+        f[1] += f[3] * v #fire y coordinate being updated
         if not (-600 <= f[0] <= 600 and -600 <= f[1] <= 600):
             continue
         if has_collided((f[0] - half, f[1] - half, half*2, half*2), aang_box):
-            player_hp -= 2
-            print("Aang hit! HP:", player_hp)
-            if player_hp <= 0 and not game_over:
-                player_hp = 0
-                game_over = True
-                print("Game over")
+            if air:
+                print("Air shield deflected damage") #for element air selected, no damage is done
+            else: #damage done by others when not air selected
+                player_hp -= 2
+                print("Aang hit! HP:", player_hp)
+                if player_hp <= 0 and not game_over:
+                    player_hp = 0
+                    game_over = True
+                    print("Game over")
             continue
         surviving_fire.append(f)
     enemy_fire = surviving_fire
@@ -465,7 +487,7 @@ def idle():
         if target is None:
             surviving_bullets.append(b)
             continue
-        if b[4] == target["immune"]:
+        if b[4] == target["immune"]: #checks enemy immunity to element selected by aang
             print("Immune")
         else:
             print("Enemy shot!")

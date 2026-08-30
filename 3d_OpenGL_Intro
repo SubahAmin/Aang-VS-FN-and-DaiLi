@@ -137,7 +137,7 @@ def reset_game():
     angle = 0
     bullets = []
     enemy_fire = []
-    PILLARS = make_pillars() #new layout every restart, before enemies pick spots
+    PILLARS = make_pillars() #new layout every restart, before enemies pick spots                    look here pillars
     enemy_positions = make_enemies()
     player_hp = 50
     game_score = 0

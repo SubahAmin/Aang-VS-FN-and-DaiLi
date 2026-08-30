@@ -256,7 +256,7 @@ def respawn_position():
         y = random.randint(-900, 900)
         if ((x - av_x)**2 + (y - av_y)**2)**0.5 < 300:
             continue
-        if in_pillar(x, y, ENEMY_R + 30): #do not respawn inside a pillar
+        if in_pillar(x, y, ENEMY_R + 30): #do not respawn inside a pillar                                         look here pillar
             continue
         if all(((x - e["x"])**2 + (y - e["y"])**2)**0.5 >= 150 for e in enemy_positions):
             return (x, y)

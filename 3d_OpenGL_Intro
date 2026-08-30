@@ -61,7 +61,7 @@ DAMAGE = {
     ("earth", "fire"): 5,
 }
 
-def make_pillars():
+def make_pillars():                                                                                       #look here pillars
     pillars = []
     target = random.randint(4, 8) #between 4 and 8 pillars each run
     tries = 0    #find valid position to place the pillar

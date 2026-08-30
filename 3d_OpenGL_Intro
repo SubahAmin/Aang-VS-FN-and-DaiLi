@@ -73,7 +73,7 @@ def make_pillars():
         if (x*x + y*y) ** 0.5 < 300 + r: #keep aang's spawn spot clear
             continue
         #leave a 200 wide gap between pillars so you can always walk between them
-        if any(((x-px)**2 + (y-py)**2) ** 0.5 < r + pr + 200 for px, py, pr in pillars):
+        if any(((x-px)**2 + (y-py)**2) ** 0.5 < r + pr + 200 for px, py, pr in pillars):    #distance between old pillar and new pillar
             continue
         pillars.append((x, y, r))
     return pillars

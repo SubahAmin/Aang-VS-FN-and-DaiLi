@@ -881,7 +881,7 @@ def showScreen():
     for i in range (-ARENA, ARENA, 60):
         glVertex3f(i, ARENA, 0)
         glVertex3f(i, -ARENA, 0)
-        glVertex3f(i+50, -ARENA, 0)
+        glVertex3f(i+50, -ARENA, 0)       #width of arena
         glVertex3f(i+50, ARENA, 0)
   
     glEnd()

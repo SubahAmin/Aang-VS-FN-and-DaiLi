@@ -64,8 +64,8 @@ DAMAGE = {
 def make_pillars():
     pillars = []
     target = random.randint(4, 8) #between 4 and 8 pillars each run
-    tries = 0
-    while len(pillars) < target and tries < 400:
+    tries = 0    #find valid position to place the pillar
+    while len(pillars) < target and tries < 400:        #no. of pillar < target no. of pillar
         tries += 1
         r = random.randint(45, 75)
         x = random.randint(-780, 780)

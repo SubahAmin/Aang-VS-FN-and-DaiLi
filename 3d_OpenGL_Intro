@@ -871,13 +871,13 @@ def showScreen():
     # Draw the grid (game floor)
     glBegin(GL_QUADS)
     
-    glColor3f(0.4, 0.2, 0.1)
+    glColor3f(0.4, 0.2, 0.1)                   #the floor                                 look here design
     glVertex3f(-ARENA, ARENA, 0)
     glVertex3f(-ARENA, -ARENA, 0)
     glVertex3f(ARENA, -ARENA, 0)
     glVertex3f(ARENA, ARENA, 0)
     
-    glColor3f(0.9, 0.6, 0.5)
+    glColor3f(0.9, 0.6, 0.5)                #the planks
     for i in range (-ARENA, ARENA, 60):
         glVertex3f(i, ARENA, 0)
         glVertex3f(i, -ARENA, 0)

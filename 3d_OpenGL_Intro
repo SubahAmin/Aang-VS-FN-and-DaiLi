@@ -3,37 +3,229 @@ from OpenGL.GLUT import *
 from OpenGL.GLU import *
 import random 
 import math
+import time
 
 # Camera-related variables
-camera_pos = (0,500,500)
-
-av_x = 0
-av_y = 0 
+camera_pos = (0,900,700)
+camera_angle=0
+av_x = 0 #aang x coord
+av_y = 0 #aang y coord
 angle = 0
 enemy_positions = []
 bullets = []
 bullet_count = 0
 game_over = False
 fire = False
-water = False
 air = False
 earth = False
 game_score = 0
+kills = 0 #enemies downed
+wrong_hits = 0 #shots that landed on an enemy immune to that element
+survived = 0.0 #seconds alive this run
+firstperson= False
 fovY = 120  # Field of view
-GRID_LENGTH = 600  # Length of grid lines
+GRID_LENGTH = 1000  # Length of grid lines
+arena = 1000 #half width of the arena floor
+bound = 945 #how far aang can walk before the wall stops him
+e_scale = 0.85 #enemies drawn at this fraction of their original size, roughly aang's height
+e_half = 68 #half width of the enemy hitbox after scaling (80 * e_scale)
 rand_var = 423
-player_hp = 50
+player_hp = 100 #maximum health points of aang
 enemy_fire = []
+air_timer = 0 #timer for using air shield
+air_cool = 0.0 #seconds until the air shield can be used again
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
+quad = None #one reusable quadric, made once in main instead of every frame
+
+PILLARS = [] #each pillar is (x, y, radius), rebuilt on every reset
+PLAYER_R = 35 #how wide aang is for pillar collision
+ENEMY_R = 60 #how wide an enemy is for pillar collision
+
+avatar_timer = 0.0 #seconds left in avatar state
+avatar_cool = 0.0 #seconds until it can be used again
+avatar_shot = 0.0 #gap between the automatic shots -> 0.3 one volley every 0.3 seconds while it lasts
+
+paused = False
+BTN_BACK  = (850, 750, 40, 30)
+BTN_PAUSE = (900, 750, 40, 30)
+BTN_EXIT  = (950, 750, 40, 30)
+
+#(enemy type, element by aang): damage received
+DAMAGE = {
+    ("fire", "earth"): 5,
+    ("earth", "fire"): 5,
+}
+
+def make_pillars():
+    pillars = []
+    target = random.randint(4, 8) #between 4 and 8 pillars each run
+    tries = 0
+    while len(pillars) < target and tries < 400:
+        tries += 1
+        r = random.randint(45, 75)
+        x = random.randint(-780, 780)
+        y = random.randint(-780, 780)
+        if (x*x + y*y) ** 0.5 < 300 + r: #keep aang's spawn spot clear
+            continue
+        #leave a 200 wide gap between pillars so you can always walk between them
+        if any(((x-px)**2 + (y-py)**2) ** 0.5 < r + pr + 200 for px, py, pr in pillars):
+            continue
+        pillars.append((x, y, r))
+    return pillars
+
+def in_pillar(x, y, r=0): #true if a point of size r overlaps any pillar
+    for px, py, pr in PILLARS:
+        if ((x-px)**2 + (y-py)**2) ** 0.5 < pr + r:
+            return True
+    return False
+
+def push_out(x, y, r):
+    #if the point ended up inside a pillar, slide it back out along the radius.
+    #pushing out sideways is what makes you glide around the pillar instead of sticking
+    for px, py, pr in PILLARS:
+        dx, dy = x - px, y - py
+        d = (dx*dx + dy*dy) ** 0.5
+        if d < pr + r:
+            if d < 1: #dead centre, pick any direction
+                dx, dy, d = 1.0, 0.0, 1.0
+            x = px + (dx/d) * (pr + r)
+            y = py + (dy/d) * (pr + r)
+    return x, y
+
+def draw_pillars():
+    for px, py, pr in PILLARS:
+        glPushMatrix()
+        glTranslatef(px, py, 0)
+        glColor3f(0.5, 0.45, 0.4)
+        gluCylinder(quad, pr, pr * 0.85, 260, 16, 4) #shaft
+        glTranslatef(0, 0, 260)
+        glColor3f(0.6, 0.55, 0.5)
+        gluCylinder(quad, pr * 0.95, 0, 60, 16, 4) #pointed cap
+        glPopMatrix()
+
+def spawn_bullets(el, avatar=False):
+    #one place that makes bullets, used by the mouse and by avatar state.
+    #the last slot marks an avatar bullet, which kills whatever it touches
+    rad = math.radians(angle) #angle aang is facing
+    ax = -math.sin(rad) #x coord of where aang is facing
+    ay = math.cos(rad) #y coord of where aang is facing
+    if el == "earth":
+        bullets.append([av_x + 60*ax, av_y + 60*ay, ax, ay, el, avatar])
+    else:
+        for k in range(3):
+            off = 60 + k * 25 #spawn distance for each of the three streak segments
+            bullets.append([av_x + off*ax, av_y + off*ay, ax, ay, el, avatar])
+
+def make_enemies():
+    return [{"x": x, "y": y,
+             "immune": "fire" if i < 4 else "earth",
+             "hx": 0.0, "hy": 0.0, "steps": 0.0, "cool": 0.0,
+             "hp": 10, "maxhp": 10}
+            for i, (x, y) in enumerate(spaced_positions(6))]
+            #i indicates number of enemies, so first 4 should be fire and last are earth
+
+def reset_game():
+    global av_x, av_y, angle, bullets, enemy_fire, enemy_positions, PILLARS
+    global player_hp, game_score, game_over, paused, kills, wrong_hits, survived
+    global air, fire, earth, air_timer, air_cool, last_time
+    global avatar_timer, avatar_cool, avatar_shot
+    
+    av_x = av_y = 0.0
+    angle = 0
+    bullets = []
+    enemy_fire = []
+    PILLARS = make_pillars() #new layout every restart, before enemies pick spots
+    enemy_positions = make_enemies()
+    player_hp = 100
+    game_score = 0
+    kills = wrong_hits = 0
+    survived = 0.0
+    game_over = False
+    paused = False
+    air = fire = earth = False
+    air_timer = 0
+    air_cool = 0.0
+    avatar_timer = avatar_cool = avatar_shot = 0.0
+    last_time = 0
+    print("Starting over")
+    
+def draw_buttons():
+    glMatrixMode(GL_PROJECTION)
+    glPushMatrix()
+    glLoadIdentity()
+    gluOrtho2D(0, 1000, 0, 800)
+    glMatrixMode(GL_MODELVIEW)
+    glPushMatrix()
+    glLoadIdentity()
+    glLineWidth(3)
+
+    x, y, w, h = BTN_BACK #x y etc coords of back button
+    glColor3f(0.0, 0.9, 0.9)
+    glBegin(GL_LINES)
+    glVertex2f(x, y + h/2);  glVertex2f(x + w, y + h/2)
+    glVertex2f(x, y + h/2);  glVertex2f(x + 12, y + h)
+    glVertex2f(x, y + h/2);  glVertex2f(x + 12, y)
+    glEnd()
+
+    x, y, w, h = BTN_PAUSE
+    glColor3f(0.8, 0.6, 0.0)
+    if paused:
+        glBegin(GL_TRIANGLES)
+        glVertex2f(x + 8, y)
+        glVertex2f(x + 8, y + h)
+        glVertex2f(x + w - 6, y + h/2)
+        glEnd()
+    else:
+        glBegin(GL_QUADS)
+        glVertex2f(x + 8,  y);      glVertex2f(x + 15, y)
+        glVertex2f(x + 15, y + h);  glVertex2f(x + 8,  y + h)
+        glVertex2f(x + 24, y);      glVertex2f(x + 31, y)
+        glVertex2f(x + 31, y + h);  glVertex2f(x + 24, y + h)
+        glEnd()
+
+    x, y, w, h = BTN_EXIT
+    glColor3f(1.0, 0.0, 0.0)
+    glBegin(GL_LINES)
+    glVertex2f(x, y);      glVertex2f(x + w, y + h)
+    glVertex2f(x, y + h);  glVertex2f(x + w, y)
+    glEnd()
+
+    glLineWidth(1)
+    glPopMatrix()
+    glMatrixMode(GL_PROJECTION)
+    glPopMatrix()
+    glMatrixMode(GL_MODELVIEW)
+    
+def in_button(mx, my, btn):
+    x, y, w, h = btn
+    return x <= mx <= x + w and y <= my <= y + h
 
 #dai li faces screen when movong side to side
 def dai_li_angle(e):
-    dx = av_x - e["x"]
-    dy = av_y - e["y"]
-    if (dx*dx + dy*dy) ** 0.5 < 250:
-        return facing_angle(e["x"], e["y"])
+    dx = av_x - e["x"] #difference between aang x coord and dai li x coord
+    dy = av_y - e["y"] #difference between aang y coord and dai li y coord
+    if (dx*dx + dy*dy) ** 0.5 < 250: #if distance between aang and dai li is less than root over x squared plus y squared
+        return facing_angle(e["x"], e["y"]) 
     return -90.0 if e["hx"] > 0 else 90.0
 
+def draw_hp_bar(e):
+    frac = max(0.0, e["hp"] / e["maxhp"])
+    glPushMatrix()
+    glTranslatef(e["x"], e["y"], 230)
+    glColor3f(0.3, 0.3, 0.3)
+    glPushMatrix()
+    glScalef(70, 5, 8)
+    glutSolidCube(1)
+    glPopMatrix()
+    if frac > 0:
+        glColor3f(0.2, 0.9, 0.2)
+        glPushMatrix()
+        glTranslatef(-35 * (1 - frac), 0, 0)
+        glScalef(70 * frac, 6, 9)
+        glutSolidCube(1)
+        glPopMatrix()
+    glPopMatrix()
+    
 def facing_angle(ex, ey): #so that enemies face aang 
     return math.degrees(math.atan2(-(av_x - ex), av_y - ey))
 
@@ -43,24 +235,29 @@ def has_collided(box1, box2):
             box1[1] < box2[1] + box2[3] and
             box1[1] + box1[3] > box2[1])
 
-def spaced_positions(n=6):
+def spaced_positions(n=6): #randomly generates 6 unique positions of all enemies so none collide with each other
     positions = []
     while len(positions) < n:
-        x = random.randint(-500, 500)
-        y = random.randint(-500, 500)
-        if all(((x-px)**2 + (y-py)**2)**0.5 >= 160 for px, py in positions):
+        x = random.randint(-900, 900)
+        y = random.randint(-900, 900)
+        if in_pillar(x, y, ENEMY_R + 30): #do not spawn inside a pillar
+            continue
+        #checks if all spawn positions do not overlap, approx 150 according to size of enemies
+        if all(((x-px)**2 + (y-py)**2)**0.5 >= 150 for px, py in positions):
             positions.append((x, y))
     return positions
 
 def respawn_position():
     for _ in range(200):
-        x = random.randint(-500, 500)
-        y = random.randint(-500, 500)
+        x = random.randint(-900, 900)
+        y = random.randint(-900, 900)
         if ((x - av_x)**2 + (y - av_y)**2)**0.5 < 300:
             continue
-        if all(((x - e["x"])**2 + (y - e["y"])**2)**0.5 >= 160 for e in enemy_positions):
+        if in_pillar(x, y, ENEMY_R + 30): #do not respawn inside a pillar
+            continue
+        if all(((x - e["x"])**2 + (y - e["y"])**2)**0.5 >= 150 for e in enemy_positions):
             return (x, y)
-    return (random.randint(-500, 500), random.randint(-500, 500))
+    return (random.randint(-900, 900), random.randint(-900, 900))
         
 def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glColor3f(1,1,1)
@@ -88,24 +285,42 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18):
     glMatrixMode(GL_MODELVIEW)
 
 
+def draw_walls(): #walls running along all four edges, meeting at the corners
+    glColor3f(0.45, 0.45, 0.5)
+    for sx, sy, w, d in ((0, arena, arena, 20), (0, -arena, arena, 20),
+                         (arena, 0, 20, arena), (-arena, 0, 20, arena)):
+        glPushMatrix()
+        glTranslatef(sx, sy, 60)
+        glScalef(w*2, d*2, 120)
+        glutSolidCube(1)
+        glPopMatrix()
+
+
 def draw_shapes():
-    global av_x, av_y, angle, bullets
+    global av_x, av_y, angle, bullets, air
+    
+    draw_walls()
+    draw_pillars()
     
     #aang
     glPushMatrix()
     glColor(0.9,0.9,0.2)
-    glTranslatef(av_x, av_y, 80)
+    glTranslatef(av_x, av_y, 0)
+    if game_over: #tip him over so he lies flat on the floor
+        glTranslatef(0, 0, 25)
+        glRotatef(90, 1, 0, 0)
+    glTranslatef(0, 0, 80)
     glRotatef(angle, 0, 0, 1)
     glutSolidCube(50) #torso
     glTranslatef(30,0,-50)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #left leg
+    gluCylinder(quad, 10, 10, 60, 10, 10) #left leg
     glTranslatef(-60,0,0)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #right leg
+    gluCylinder(quad, 10, 10, 60, 10, 10) #right leg
     glTranslatef(-30,0,90)
     glRotatef(90, 0, 1, 0)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #righ arm
+    gluCylinder(quad, 10, 10, 60, 10, 10) #righ arm
     glTranslatef(0,0,70)
-    gluCylinder(gluNewQuadric(), 10, 10, 60, 10, 10) #left arm
+    gluCylinder(quad, 10, 10, 60, 10, 10) #left arm
     glRotatef(-90, 0, 1, 0)
     glTranslatef(-10, 0, 0)
     glColor(0.9,0.4,0.2)
@@ -124,30 +339,40 @@ def draw_shapes():
     glTranslatef(0, -60, 0)
     glutSolidCube(10)
     glPopMatrix()
+    #air shield
+    if air:
+        glPushMatrix()
+        glTranslatef(av_x, av_y, 100)
+        glColor3f(0.9, 0.6, 0.3)
+        for k in range(12):
+            a = math.radians(k * 30) #angle of blocks circling around aang to make the air shield
+            glPushMatrix()
+            glTranslatef(90 * math.cos(a), 90 * math.sin(a), 0)
+            glutSolidCube(20)
+            glPopMatrix()
+        glPopMatrix()
     
     element_colors = {
-        "air": (0.9, 0.6, 0.3),
         "water": (0, 0.6, 0.9),
         "fire": (1, 0.2, 0.2),
         "earth": (0, 0.6, 0.2),
-        "none": (0.9, 0.7, 0.4),
     }
 
-    for b in bullets:
+    for b in bullets: #aang bullets
         glPushMatrix()
-        glColor3f(*element_colors[b[4]])
+        glColor3f(*element_colors[b[4]]) #color of element selected from list right above
         glTranslatef(b[0], b[1], 150)
-        glutSolidCube(10)
+        glutSolidCube(35 if b[4] == "earth" else 12)
         glPopMatrix()
     
     #enemy bullet
-    for f in enemy_fire:
+    for f in enemy_fire: #each f is [x, y, dx, dy, element]
         glPushMatrix()
         glTranslatef(f[0], f[1], 150)
-        if f[4] == "fire":
+        if f[4] == "fire": #if element == fire
             glColor3f(1, 0.4, 0)
             glutSolidCube(14)
-        else:
+        else: #then element is earth
             glColor3f(0.3, 0.5, 0.2)
             glutSolidCube(30)
         glPopMatrix()
@@ -159,29 +384,31 @@ def draw_shapes():
         ex, ey = e["x"], e["y"]
         glPushMatrix()
         glColor3f(0.6, 0.1, 0)
-        glTranslatef(ex,ey,80)
+        glTranslatef(ex,ey,0)
+        glScalef(e_scale, e_scale, e_scale) #shrink the whole model
+        glTranslatef(0,0,80)
         glRotatef(facing_angle(ex, ey), 0, 0, 1)
         glutSolidCube(80)
         glTranslatef(0,0,30)
         glutSolidCube(80)
         glColor3f(1, 1, 1)
         glTranslatef(0,0,40)
-        gluSphere(gluNewQuadric(), 40, 10, 10) #face
+        gluSphere(quad, 40, 16, 16) #face
         glColor3f(0.4, 0.1, 0)
         glTranslatef(30,0,30)
         glRotatef(40, 0, 1, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left spike
+        gluCylinder(quad, 20, 5, 50, 16, 4) #left spike
         glRotatef(-40, 0, 1, 0)
         glTranslatef(-60,0,0)
         glRotatef(-40, 0, 1, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right spike
+        gluCylinder(quad, 20, 5, 50, 16, 4) #right spike
         glColor(0.9,0.8,0.5)
         glRotatef(40, 0, 1, 0)
         glTranslatef(-10,0,-80)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right arm
+        gluCylinder(quad, 20, 5, 50, 16, 4) #right arm
         glTranslatef(80,0,00)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left arm
+        gluCylinder(quad, 20, 5, 50, 16, 4) #left arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(-15,0,-80)
         glColor3f(0.6, 0.1, 0)
@@ -189,6 +416,7 @@ def draw_shapes():
         glTranslatef(-55,0,0)
         glutSolidCube(30)
         glPopMatrix()
+        draw_hp_bar(e)
     
     #dai li soldiers
     for e in enemy_positions:
@@ -197,25 +425,27 @@ def draw_shapes():
         ex, ey = e["x"], e["y"]
         glPushMatrix()
         glColor3f(0.1, 0.4, 0.2)
-        glTranslatef(ex,ey,80)
+        glTranslatef(ex,ey,0)
+        glScalef(e_scale, e_scale, e_scale) #shrink the whole model
+        glTranslatef(0,0,80)
         glRotatef(dai_li_angle(e), 0, 0, 1)
         glutSolidCube(80)
         glTranslatef(0,0,30)
         glutSolidCube(80)
         glTranslatef(0,0,40)
         glColor(0.9,0.8,0.5)
-        gluSphere(gluNewQuadric(), 50, 10, 10) #head
+        gluSphere(quad, 50, 16, 16) #head
         glTranslatef(0,0,40)
         glColor3f(0.1, 0.4, 0.2)
-        gluCylinder(gluNewQuadric(), 80, 5, 50, 10, 10) #hat
+        gluCylinder(quad, 80, 5, 50, 16, 4) #hat
         glColor(0.9,0.8,0.5)
         glTranslatef(60,0,-100)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #left arm
+        gluCylinder(quad, 20, 5, 50, 16, 4) #left arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(-100,0,0)
         glRotatef(-90, 1, 0, 0)
-        gluCylinder(gluNewQuadric(), 20, 5, 50, 10, 10) #right arm
+        gluCylinder(quad, 20, 5, 50, 16, 4) #right arm
         glRotatef(90, 1, 0, 0)
         glTranslatef(20,0,-80)
         glColor(0,0,0)
@@ -223,6 +453,7 @@ def draw_shapes():
         glTranslatef(60,0,00)
         glutSolidCube(40)
         glPopMatrix()
+        draw_hp_bar(e)
     
   #  gluSphere(gluNewQuadric(), 50, 10, 10) #belly
    # glTranslate(0,0,20)
@@ -267,87 +498,153 @@ def keyboardListener(key, x, y):
     """
     Handles keyboard inputs for player movement, gun rotation, camera updates, and cheat mode toggles.
     """
-    global av_x, av_y, game_over, angle, air, water, fire, earth
+    global av_x, av_y, game_over, air_timer, air_cool, angle, air, fire, earth,firstperson                    
+    global avatar_timer, avatar_cool
+    
     rad = math.radians(angle)
     ax=-math.sin(rad)
     ay=math.cos(rad)
+    active = not game_over and not paused
+    if key == b'r':
+        reset_game()
+        return
     if key == b'w':  
-        if not game_over: 
-            av_x += 10 * ax
-            av_y += 10 * ay
+        if active: 
+            av_x += 20 * ax
+            av_y += 20 * ay
 
     # # Move backward (S key)
     if key == b's':
-        if not game_over: 
-            av_x -= 10 * ax
-            av_y -= 10 * ay
+        if active: 
+            av_x -= 20 * ax
+            av_y -= 20 * ay
 
-    # # Rotate gun left (A key)
+    #keep aang inside the four walls
+    av_x = max(-bound, min(bound, av_x))
+    av_y = max(-bound, min(bound, av_y))
+    av_x, av_y = push_out(av_x, av_y, PLAYER_R) #and outside the pillars
+
+    # # Rotate aang left (A key)
     if key == b'a':
-        if not game_over: 
+        if active: 
             angle=angle-10
 
-    # # Rotate gun right (D key)
+    # # Rotate aang right (D key)
     if key == b'd':
-        if not game_over: 
+        if active: 
             angle=angle+10
             
+    if key in (b'1', b'2', b'3') and avatar_timer > 0:
+        print("Avatar state is on, element locked") #nothing can drop the air shield
+        return
+
     if key == b'1':
-        air = True
-        water, fire, earth = False, False, False
-        print("Air selected")
+        if air_timer > 0:
+            print("Air shield already up")
+        elif air_cool > 0:
+            print("Air shield on cooldown")
+        else:
+            air = True #air shield only, it does not change the element
+            air_timer = 5.0
+            print("Air shield up")
+        
     if key == b'2':
-        water = True
-        air, fire, earth = False, False, False
-        print("Water selected")
-    if key == b'3':
         earth = True
-        water, fire, air = False, False, False
+        fire = False
         print("Earth selected")
-    if key == b'4':
+    if key == b'3':
         fire = True
-        water, air, earth = False, False, False
+        earth = False
         print("Fire selected")
+     
+    if key == b'c':
+        if not active:
+            pass
+        elif avatar_timer > 0:
+            print("Avatar state already on")
+        elif avatar_cool > 0:
+            print("Avatar state on cooldown")
+        else:
+            avatar_timer = 7.0
+            air = True #equips the same air shield as key 1, for the same 7 seconds
+            air_timer = 7.0
+            print("Avatar state!")
+
+    if key == b'f':                                                                    
+       
+       if firstperson: 
+           print("First person mode exited")
+           
+       else:
+           print("First person mode selected")
+           
+    
+       firstperson = not firstperson   
+    
+        
         
 
 def specialKeyListener(key, x, y):
     """
     Handles special key inputs (arrow keys) for adjusting the camera angle and height.
     """
-    global camera_pos 
+    global camera_pos,camera_angle 
     x, y, z = camera_pos
     # Move camera up (UP arrow key)
     if key == GLUT_KEY_UP:
-        z = z+10
+        z = z+5
 
     # # Move camera down (DOWN arrow key)
     if key == GLUT_KEY_DOWN:
-        z = z-10
-    # moving camera left (LEFT arrow key)
+        z = z-5
+     # moving camera left (LEFT arrow key)
     if key == GLUT_KEY_LEFT:
-        x -= 1  # Small angle decrement for smooth movement
+       camera_angle -= 3 #camera rotates left
 
     # moving camera right (RIGHT arrow key)
     if key == GLUT_KEY_RIGHT:
-        x += 1  # Small angle increment for smooth movement
+        camera_angle += 3 #camera rotates right
+        
+    radius = 900 #centre set at one point
+    rad = math.radians(camera_angle)
+    x = radius * math.sin(rad)
+    y = radius * math.cos(rad)
+
 
     camera_pos = (x, y, z)
 
 
 def mouseListener(button, state, x, y):
-    """
-    Handles mouse inputs for firing bullets (left click) and toggling camera mode (right click).
-    """
-    global av_x, av_y, game_over, bullets, bullet_count, air, water, fire, earth, element
-        # # Left mouse button fires a bullet
-        # if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN:
-    if button == GLUT_LEFT_BUTTON and state == GLUT_DOWN and not game_over:
-        rad = math.radians(angle)
-        ax = -math.sin(rad)
-        ay = math.cos(rad)
-        element = "air" if air else "water" if water else "earth" if earth else "fire" if fire else "none"
-        bullets.append([av_x+60*ax, av_y+60*ay, ax, ay, element])
-        bullet_count += 1
+    global bullets, bullet_count, paused
+
+    if button != GLUT_LEFT_BUTTON or state != GLUT_DOWN:
+        return
+
+    mx, my = x, 800 - y
+
+    if in_button(mx, my, BTN_BACK):
+        reset_game()
+        return
+    if in_button(mx, my, BTN_PAUSE):
+        if game_over:
+            print("Please start over")
+        else:
+            paused = not paused
+            print("Paused" if paused else "Played")
+        return
+    if in_button(mx, my, BTN_EXIT):
+        print("Goodbye")
+        glutLeaveMainLoop()
+        return
+
+    if game_over or paused:
+        return
+
+    element = "earth" if earth else "fire" if fire else None
+    if element is None:
+        return
+    spawn_bullets(element)
+    bullet_count += 1
         # # Right mouse button toggles camera tracking mode
         # if button == GLUT_RIGHT_BUTTON and state == GLUT_DOWN:
 
@@ -357,19 +654,33 @@ def setupCamera():
     Configures the camera's projection and view settings.
     Uses a perspective projection and positions the camera to look at the target.
     """
+    global firstperson                                                                       
     glMatrixMode(GL_PROJECTION)  # Switch to projection matrix mode
     glLoadIdentity()  # Reset the projection matrix
     # Set up a perspective projection (field of view, aspect ratio, near clip, far clip)
-    gluPerspective(fovY, 1.25, 0.1, 1500) # Think why aspect ration is 1.25?
+    gluPerspective(fovY, 1.25, 0.1, 3000) # Think why aspect ration is 1.25?
     glMatrixMode(GL_MODELVIEW)  # Switch to model-view matrix mode
     glLoadIdentity()  # Reset the model-view matrix
 
     # Extract camera position and look-at target
     x, y, z = camera_pos
+    if firstperson :                                                                        
+      #  fp_angle = angle
+        rad = math.radians(angle) 
+        ax = -math.sin(rad)
+        ay = math.cos(rad)
+        cam_x = av_x +80*ax
+        cam_y = av_y +80*ay
+        cam_z = 170
+        gluLookAt(cam_x, cam_y, cam_z,
+                  av_x + 400*ax, av_y + 400*ay, 80,
+                  0, 0, 1)
+        
+    else:
     # Position the camera and set its orientation
-    gluLookAt(x, y, z,  # Camera position
-              0, 0, 0,  # Look-at target
-              0, 0, 1)  # Up vector (z-axis)
+        gluLookAt(x, y, z,  # Camera position
+                 0, 0, 0,  # Look-at target
+                 0, 0, 1)  # Up vector (z-axis)
 
 
 def idle():
@@ -377,86 +688,143 @@ def idle():
     Idle function that runs continuously:
     - Triggers screen redraw for real-time updates.
     """
-    global av_x, av_y, enemy_positions, bullets, game_score, player_hp, enemy_fire, game_over, last_time
+    global av_x, av_y, air_timer, air_cool, paused, last_time, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over
+    global avatar_timer, avatar_cool, avatar_shot, kills, wrong_hits, survived
     
-    bullet_speed = 2
+    if paused:
+        glutPostRedisplay()
+        return
+    #time elapsed since the last frame, in seconds
+    now = time.perf_counter()
+    if last_time == 0:
+        last_time = now
+    dt = now - last_time
+    last_time = now
+    if dt > 0.05:
+        dt = 0.05
+    if not game_over:
+        survived += dt #clock only runs while he is alive
+        
+    #avatar state: counts down, then the cooldown starts
+    if avatar_timer > 0:
+        air = True #air shield cannot lapse while the state is running
+        air_timer = max(air_timer, avatar_timer)
+        avatar_timer -= dt
+        if avatar_timer <= 0:
+            avatar_timer = 0.0
+            avatar_cool = 20
+            print("Avatar state over")
+        elif not game_over:
+            avatar_shot -= dt
+            if avatar_shot <= 0: #shoots on its own, no clicking needed
+                spawn_bullets("water", True)
+                avatar_shot = 0.3
+    elif avatar_cool > 0:
+        avatar_cool = max(0.0, avatar_cool - dt)
+        if avatar_cool == 0:
+            print("Avatar state ready")
+
+    if air_timer > 0:
+        air_timer -= dt
+        if air_timer <= 0:
+            air_timer = 0
+            air = False
+            air_cool = 10.0
+            print("Air shield expired")
+    elif air_cool > 0:
+        air_cool = max(0.0, air_cool - dt)
+        if air_cool == 0:
+            print("Air shield ready")
+    
+    bullet_speed = 550
     new_bullets = []
     for b in bullets:
-        b[0] += b[2] * bullet_speed
-        b[1] += b[3] * bullet_speed
-        if -600 <= b[0] <= 600 and -600 <= b[1] <= 600:
-            new_bullets.append(b)
+        b[0] += b[2] * bullet_speed * dt #x coordinate of bullet being updated
+        b[1] += b[3] * bullet_speed * dt #y coordinate of bullet being updated
+        if -arena <= b[0] <= arena and -arena <= b[1] <= arena: #if bullet goes out of bounds of the arena
+            if not in_pillar(b[0], b[1]): #pillars block shots
+                new_bullets.append(b)
         
     bullets = new_bullets
     
-    speed = 0.1
-    patrol_speed = 0.4
+    speed = 55
+    patrol_speed = 90 #speed of dai li
     detect = 250
     
     #enemy movement
     for e in enemy_positions:
-        dx = av_x - e["x"]
-        dy = av_y - e["y"]
-        d = (dx*dx + dy*dy) ** 0.5
-        if e["immune"] == "fire" or d < detect:
+        dx = av_x - e["x"] #distance between aang x coord and enemy x coord
+        dy = av_y - e["y"] #distance between aang y coord and enemy y coord
+        d = (dx*dx + dy*dy) ** 0.5 #total detection range
+        #e[immune] names the element that enemy resists,
+        #(dx/d, dy/d) normalizes the vector to Aang, dividing by its own length gives a unit vector, same idea as ax, ay. multiplying by speed steps that far toward him.
+        if e["immune"] == "fire" or d < detect: #within range of detection 
             if d > 1:
-                e["x"] += (dx/d) * speed
-                e["y"] += (dy/d) * speed
-            e["cool"] -= 1
+                e["x"] += (dx/d) * speed * dt #enemy starts moving x and y coord towards aang x y coord
+                e["y"] += (dy/d) * speed * dt
+            e["cool"] -= dt #firing cooldown of enemies
             if e["cool"] <= 0 and 1 < d < 300 and not game_over:
                 ux, uy = dx/d, dy/d
                 if e["immune"] == "fire":
-                    e["cool"] = 400
+                    e["cool"] = 2.5 #cooldown between fire shots
                     for k in range(4):
-                        off = k * 35
+                        off = k * 35 #off is the spawn distance for each of the three streak segments
                         enemy_fire.append([e["x"] + ux*off, e["y"] + uy*off,
                                            ux, uy, "fire"])
                 else:
-                    e["cool"] = 600
+                    e["cool"] = 4.0
                     enemy_fire.append([e["x"], e["y"], ux, uy, "earth"])
         else:
             if e["steps"] <= 0:
-                e["hx"] = random.choice((-1.0, 1.0))
-                e["steps"] = random.randint(200, 600)
-            e["x"] += e["hx"] * patrol_speed
-            e["steps"] -= 1
-            if not -550 <= e["x"] <= 550:
+                e["hx"] = random.choice((-1.0, 1.0)) #e["hx"] is the patrol heading — +1.0 or -1.0, meaning right or left along X.
+                e["steps"] = random.uniform(2.0, 5.0)
+            e["x"] += e["hx"] * patrol_speed * dt
+            e["steps"] -= dt #steps is a countdown, when it expires, pick a fresh random direction and a fresh duration
+            if not -930 <= e["x"] <= 930: #boundary of arena for enemy
                 e["hx"] = -e["hx"]
-                e["x"] = max(-550, min(550, e["x"]))
+                e["x"] = max(-930, min(930, e["x"]))
+        #whichever way it moved, keep it out of the pillars so it walks around them
+        e["x"], e["y"] = push_out(e["x"], e["y"], ENEMY_R)
     
     
     #enemy bullet movement
-    fire_speed = 1.5
-    earth_speed = 0.9
-    aang_box = (av_x - 35, av_y - 35, 70, 70)
+    fire_speed = 400
+    earth_speed = 240
+    aang_box = (av_x - 35, av_y - 35, 70, 70) #coordinate of aang
     surviving_fire = []
     for f in enemy_fire:
-        v = fire_speed if f[4] == "fire" else earth_speed
+        v = fire_speed if f[4] == "fire" else earth_speed #selects speed of bullet depending on enemy
         half = 7 if f[4] == "fire" else 15
-        f[0] += f[2] * v
-        f[1] += f[3] * v
-        if not (-600 <= f[0] <= 600 and -600 <= f[1] <= 600):
+        f[0] += f[2] * v * dt #fire x coordinate being updated
+        f[1] += f[3] * v * dt #fire y coordinate being updated
+        if not (-arena <= f[0] <= arena and -arena <= f[1] <= arena):
+            continue
+        if in_pillar(f[0], f[1]): #pillars block enemy shots too
             continue
         if has_collided((f[0] - half, f[1] - half, half*2, half*2), aang_box):
-            player_hp -= 2
-            print("Aang hit! HP:", player_hp)
-            if player_hp <= 0 and not game_over:
-                player_hp = 0
-                game_over = True
-                print("Game over")
+            if air: #the air shield takes all damage, however it was equipped
+                print("Air shield deflected damage") #for element air selected, no damage is done
+            else: #damage done by others when not air selected
+                player_hp = max(0, player_hp - 2) #hp floors at zero, never negative
+                print("Aang hit! HP:", player_hp)
+                if player_hp == 0 and not game_over:
+                    game_over = True
+                    enemy_positions = [] #they vanish, leaving him alone on the ground
+                    print("Game over")
             continue
         surviving_fire.append(f)
-    enemy_fire = surviving_fire
+    enemy_fire = [] if game_over else surviving_fire
     
     
     # bullet vs enemy
     surviving_bullets = []
     for b in bullets:
-        bullet_box = (b[0] - 5, b[1] - 5, 10, 10)
+        half = 17 if b[4] == "earth" else 6 #half is half width of projectile hitbox as point calculated from centre
+        bullet_box = (b[0] - half, b[1] - half, half*2, half*2)
         target = None
         best = None
         for e in enemy_positions:
-            enemy_box = (e["x"] - 80, e["y"] - 80, 160, 160)
+            enemy_box = (e["x"] - e_half, e["y"] - e_half, e_half*2, e_half*2)
             if has_collided(bullet_box, enemy_box):
                 d = (b[0] - e["x"])**2 + (b[1] - e["y"])**2
                 if best is None or d < best:
@@ -465,14 +833,22 @@ def idle():
         if target is None:
             surviving_bullets.append(b)
             continue
-        if b[4] == target["immune"]:
+        if b[4] == target["immune"] and not b[5]:
+            wrong_hits += 1
             print("Immune")
         else:
-            print("Enemy shot!")
-            game_score += 1
-            target["x"], target["y"] = respawn_position()
-            target["steps"] = 0
-    bullets = surviving_bullets
+            #an avatar bullet takes the whole health bar, immunity and all
+            dmg = target["maxhp"] if b[5] else DAMAGE.get((target["immune"], b[4]), 1)
+            target["hp"] -= dmg
+            print("Hit for", dmg, "- enemy HP:", target["hp"])
+            if target["hp"] <= 0:
+                print("Enemy down!")
+                kills += 1
+                game_score += 10
+                target["x"], target["y"] = respawn_position()
+                target["hp"] = target["maxhp"]
+                target["steps"] = 0
+    bullets = [] if game_over else surviving_bullets
     
     # Ensure the screen updates with the latest changes
     glutPostRedisplay()
@@ -501,24 +877,51 @@ def showScreen():
     glBegin(GL_QUADS)
     
     glColor3f(0.4, 0.2, 0.1)
-    glVertex3f(-600, 600, 0)
-    glVertex3f(-600, -600, 0)
-    glVertex3f(600, -600, 0)
-    glVertex3f(600, 600, 0)
+    glVertex3f(-arena, arena, 0)
+    glVertex3f(-arena, -arena, 0)
+    glVertex3f(arena, -arena, 0)
+    glVertex3f(arena, arena, 0)
     
     glColor3f(0.9, 0.6, 0.5)
-    for i in range (-600,600,60):
-        glVertex3f(i, 600, 0)
-        glVertex3f(i, -600, 0)
-        glVertex3f(i+50, -600, 0)
-        glVertex3f(i+50, 600, 0)
+    for i in range (-arena, arena, 60):
+        glVertex3f(i, arena, 0)
+        glVertex3f(i, -arena, 0)
+        glVertex3f(i+50, -arena, 0)
+        glVertex3f(i+50, arena, 0)
   
     glEnd()
 
     # Display game info text at a fixed screen position
-    draw_text(10, 770, f"HP: {player_hp}")
-    draw_text(10, 740, f"Score: {game_score}")
     draw_shapes()
+    if game_over:
+        final = game_score + int(survived) * 2 - wrong_hits * 5
+        draw_text(430, 470, "GAME OVER")
+        draw_text(410, 430, f"Kills: {kills}")
+        draw_text(410, 400, f"Wrong element hits: {wrong_hits}")
+        draw_text(410, 370, f"Time survived: {survived:.1f}s")
+        draw_text(410, 340, f"Score: {game_score}")
+        draw_text(410, 300, f"FINAL SCORE: {final}")
+        draw_text(410, 260, "Press R to restart")
+    else:
+        element = "WATER" if avatar_timer > 0 else "EARTH" if earth else "FIRE" if fire else "NONE"
+        draw_text(10, 770, f"HP: {player_hp}")
+        draw_text(10, 740, f"Score: {game_score}")
+        draw_text(10, 710, f"Element: {element}")
+        draw_text(10, 680, f"Kills: {kills}   Wrong hits: {wrong_hits}")
+        draw_text(10, 650, f"Time: {survived:.1f}s")
+        if avatar_timer > 0:
+            draw_text(10, 620, f"AVATAR STATE: {avatar_timer:.1f}s")
+        elif avatar_cool > 0:
+            draw_text(10, 620, f"Avatar state cooldown: {avatar_cool:.1f}s")
+        else:
+            draw_text(10, 620, "Avatar state ready [C]")
+        if air_timer > 0:
+            draw_text(10, 590, f"AIR SHIELD: {air_timer:.1f}s")
+        elif air_cool > 0:
+            draw_text(10, 590, f"Air shield cooldown: {air_cool:.1f}s")
+        else:
+            draw_text(10, 590, "Air shield ready [1]")
+    draw_buttons()
 
     # Swap buffers for smooth rendering (double buffering)
     glutSwapBuffers()
@@ -526,16 +929,16 @@ def showScreen():
 
 # Main function to set up OpenGL window and loop
 def main():
-    global enemy_positions
-    enemy_positions = [{"x": x, "y": y,
-                     "immune": "fire" if i < 4 else "earth",
-                     "hx": 0.0, "hy": 0.0, "steps": 0, "cool": 0}
-                    for i, (x, y) in enumerate(spaced_positions(6))]
+    global enemy_positions, quad, PILLARS
+    PILLARS = make_pillars()
+    enemy_positions = make_enemies()
+    
     glutInit()
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH)  # Double buffering, RGB color, depth test
     glutInitWindowSize(1000, 800)  # Window size
     glutInitWindowPosition(0, 0)  # Window position
     wind = glutCreateWindow(b"3D OpenGL Intro")  # Create the window
+    quad = gluNewQuadric() #made once here, reused by every draw call
 
     glutDisplayFunc(showScreen)  # Register display function
     glutKeyboardFunc(keyboardListener)  # Register keyboard listener

@@ -75,7 +75,7 @@ def make_pillars():
         #leave a 200 wide gap between pillars so you can always walk between them
         if any(((x-px)**2 + (y-py)**2) ** 0.5 < r + pr + 200 for px, py, pr in pillars):    #distance between old pillar and new pillar
             continue
-        pillars.append((x, y, r))
+        pillars.append((x, y, r))        #pillar selected so add to pillar list
     return pillars
 
 def in_pillar(x, y, r=0): #true if a point of size r overlaps any pillar

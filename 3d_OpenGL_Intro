@@ -7,7 +7,7 @@ import time
 
 # Camera-related variables
 camera_pos = (0,900,700)
-camera_angle=0
+camera_angle=0   #angle to track orbit around the arena
 av_x = 0
 av_y = 0 
 angle = 0

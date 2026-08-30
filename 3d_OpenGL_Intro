@@ -664,7 +664,7 @@ def setupCamera():
         rad = math.radians(angle) 
         ax = -math.sin(rad)
         ay = math.cos(rad)
-        cam_x = av_x +80*ax
+        cam_x = av_x +80*ax      #front view through aangs eyes
         cam_y = av_y +80*ay
         cam_z = 170
         gluLookAt(cam_x, cam_y, cam_z,

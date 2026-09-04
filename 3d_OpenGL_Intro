@@ -36,6 +36,7 @@ air_timer = 0 #timer for using air shield
 air_cool = 0.0 #seconds until the air shield can be used again
 last_time = 0 #for time elapsed so that refresh rate of screen does not affect movement
 quad = None #one reusable quadric, made once in main instead of every frame
+shield_spin = 0.0  # current rotation offset of the air shield blocks, degrees
 
 PILLARS = [] #each pillar is (x, y, radius), rebuilt on every reset
 PLAYER_R = 35 #how wide aang is for pillar collision
@@ -120,7 +121,9 @@ def make_enemies():
     return [{"x": x, "y": y,
              "immune": "fire" if i < 4 else "earth",
              "hx": 0.0, "hy": 0.0, "steps": 0.0, "cool": 0.0,
-             "hp": 10, "maxhp": 10}
+             "hp": 10, "maxhp": 10,
+             "jump_z": 0.0, "jump_vel": 0.0,
+             "jump_cd": random.uniform(1.0, 2.5)}
             for i, (x, y) in enumerate(spaced_positions(6))]
             #i indicates number of enemies, so first 4 should be fire and last are earth
 
@@ -345,7 +348,7 @@ def draw_shapes():
         glTranslatef(av_x, av_y, 100)
         glColor3f(0.9, 0.6, 0.3)
         for k in range(12):
-            a = math.radians(k * 30) #angle of blocks circling around aang to make the air shield
+            a = math.radians(k * 30 + shield_spin)  # <-- spin offset added
             glPushMatrix()
             glTranslatef(90 * math.cos(a), 90 * math.sin(a), 0)
             glutSolidCube(20)
@@ -384,7 +387,7 @@ def draw_shapes():
         ex, ey = e["x"], e["y"]
         glPushMatrix()
         glColor3f(0.6, 0.1, 0)
-        glTranslatef(ex,ey,0)
+        glTranslatef(ex, ey, e["jump_z"])
         glScalef(e_scale, e_scale, e_scale) #shrink the whole model
         glTranslatef(0,0,80)
         glRotatef(facing_angle(ex, ey), 0, 0, 1)
@@ -689,7 +692,7 @@ def idle():
     - Triggers screen redraw for real-time updates.
     """
     global av_x, av_y, air_timer, air_cool, paused, last_time, enemy_positions, bullets, air, game_score, player_hp, enemy_fire, game_over
-    global avatar_timer, avatar_cool, avatar_shot, kills, wrong_hits, survived
+    global avatar_timer, avatar_cool, avatar_shot, kills, wrong_hits, survived, shield_spin
     
     if paused:
         glutPostRedisplay()
@@ -723,7 +726,11 @@ def idle():
         avatar_cool = max(0.0, avatar_cool - dt)
         if avatar_cool == 0:
             print("Avatar state ready")
-
+    
+    if air:
+       shield_spin += 240 * dt  # degrees per second — tweak speed here
+       if shield_spin >= 360:
+           shield_spin -= 360
     if air_timer > 0:
         air_timer -= dt
         if air_timer <= 0:
@@ -759,6 +766,17 @@ def idle():
         #e[immune] names the element that enemy resists,
         #(dx/d, dy/d) normalizes the vector to Aang, dividing by its own length gives a unit vector, same idea as ax, ay. multiplying by speed steps that far toward him.
         if e["immune"] == "fire" or d < detect: #within range of detection 
+            if e["jump_z"] > 0 or e["jump_vel"] != 0:
+                e["jump_vel"] -= 700 * dt          # gravity
+                e["jump_z"] += e["jump_vel"] * dt
+                if e["jump_z"] <= 0:
+                    e["jump_z"] = 0.0
+                    e["jump_vel"] = 0.0
+                    e["jump_cd"] = random.uniform(1.2, 2.8)
+            else:
+                e["jump_cd"] -= dt
+                if e["jump_cd"] <= 0:
+                    e["jump_vel"] = 320.0           # launch speed, tweak for hop height
             if d > 1:
                 e["x"] += (dx/d) * speed * dt #enemy starts moving x and y coord towards aang x y coord
                 e["y"] += (dy/d) * speed * dt
@@ -893,6 +911,7 @@ def showScreen():
 
     # Display game info text at a fixed screen position
     draw_shapes()
+    draw_text(370, 780, "AVATAR BENDING ARENA", GLUT_BITMAP_HELVETICA_18)
     if game_over:
         final = game_score + int(survived) * 2 - wrong_hits * 5
         draw_text(430, 470, "GAME OVER")
